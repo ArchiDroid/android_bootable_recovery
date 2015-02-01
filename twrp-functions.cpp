@@ -354,30 +354,30 @@ void TWFunc::install_htc_dumlock(void) {
 		return;
 
 	gui_print("Installing HTC Dumlock to system...\n");
-	copy_file("/res/htcd/htcdumlocksys", "/system/bin/htcdumlock", 0755);
+	copy_file(TWHTCD_PATH "htcdumlocksys", "/system/bin/htcdumlock", 0755);
 	if (!Path_Exists("/system/bin/flash_image")) {
 		gui_print("Installing flash_image...\n");
-		copy_file("/res/htcd/flash_imagesys", "/system/bin/flash_image", 0755);
+		copy_file(TWHTCD_PATH "flash_imagesys", "/system/bin/flash_image", 0755);
 		need_libs = 1;
 	} else
 		gui_print("flash_image is already installed, skipping...\n");
 	if (!Path_Exists("/system/bin/dump_image")) {
 		gui_print("Installing dump_image...\n");
-		copy_file("/res/htcd/dump_imagesys", "/system/bin/dump_image", 0755);
+		copy_file(TWHTCD_PATH "dump_imagesys", "/system/bin/dump_image", 0755);
 		need_libs = 1;
 	} else
 		gui_print("dump_image is already installed, skipping...\n");
 	if (need_libs) {
 		gui_print("Installing libs needed for flash_image and dump_image...\n");
-		copy_file("/res/htcd/libbmlutils.so", "/system/lib/libbmlutils.so", 0755);
-		copy_file("/res/htcd/libflashutils.so", "/system/lib/libflashutils.so", 0755);
-		copy_file("/res/htcd/libmmcutils.so", "/system/lib/libmmcutils.so", 0755);
-		copy_file("/res/htcd/libmtdutils.so", "/system/lib/libmtdutils.so", 0755);
+		copy_file(TWHTCD_PATH "libbmlutils.so", "/system/lib/libbmlutils.so", 0644);
+		copy_file(TWHTCD_PATH "libflashutils.so", "/system/lib/libflashutils.so", 0644);
+		copy_file(TWHTCD_PATH "libmmcutils.so", "/system/lib/libmmcutils.so", 0644);
+		copy_file(TWHTCD_PATH "libmtdutils.so", "/system/lib/libmtdutils.so", 0644);
 	}
 	gui_print("Installing HTC Dumlock app...\n");
 	mkdir("/data/app", 0777);
 	unlink("/data/app/com.teamwin.htcdumlock*");
-	copy_file("/res/htcd/HTCDumlock.apk", "/data/app/com.teamwin.htcdumlock.apk", 0777);
+	copy_file(TWHTCD_PATH "HTCDumlock.apk", "/data/app/com.teamwin.htcdumlock.apk", 0777);
 	sync();
 	gui_print("HTC Dumlock is installed.\n");
 }
@@ -585,7 +585,7 @@ int TWFunc::removeDir(const string path, bool skipParent) {
 	string new_path;
 
 	if (d == NULL) {
-		LOGERR("Error opening '%s'\n", path.c_str());
+		LOGERR("Error opening dir: '%s'\n", path.c_str());
 		return -1;
 	}
 
@@ -727,130 +727,6 @@ int32_t TWFunc::timespec_diff_ms(timespec& start, timespec& end)
 {
 	return ((end.tv_sec * 1000) + end.tv_nsec/1000000) -
 			((start.tv_sec * 1000) + start.tv_nsec/1000000);
-}
-
-int TWFunc::drop_caches(void) {
-	string file = "/proc/sys/vm/drop_caches";
-	string value = "3";
-	if (write_file(file, value) != 0)
-		return -1;
-	return 0;
-}
-
-int TWFunc::tw_chmod(const string& fn, const string& mode) {
-	long mask = 0;
-	std::string::size_type n = mode.length();
-	int cls = 0;
-
-	if(n == 3)
-		++cls;
-	else if(n != 4)
-	{
-		LOGERR("TWFunc::tw_chmod used with %u long mode string (should be 3 or 4)!\n", mode.length());
-		return -1;
-	}
-
-	for (n = 0; n < mode.length(); ++n, ++cls) {
-		if (cls == 0) {
-			if (mode[n] == '0')
-				continue;
-			else if (mode[n] == '1')
-				mask |= S_ISVTX;
-			else if (mode[n] == '2')
-				mask |= S_ISGID;
-			else if (mode[n] == '4')
-				mask |= S_ISUID;
-			else if (mode[n] == '5') {
-				mask |= S_ISVTX;
-				mask |= S_ISUID;
-			}
-			else if (mode[n] == '6') {
-				mask |= S_ISGID;
-				mask |= S_ISUID;
-			}
-			else if (mode[n] == '7') {
-				mask |= S_ISVTX;
-				mask |= S_ISGID;
-				mask |= S_ISUID;
-			}
-		}
-		else if (cls == 1) {
-			if (mode[n] == '7') {
-				mask |= S_IRWXU;
-			}
-			else if (mode[n] == '6') {
-				mask |= S_IRUSR;
-				mask |= S_IWUSR;
-			}
-			else if (mode[n] == '5') {
-				mask |= S_IRUSR;
-				mask |= S_IXUSR;
-			}
-			else if (mode[n] == '4')
-				mask |= S_IRUSR;
-			else if (mode[n] == '3') {
-				mask |= S_IWUSR;
-				mask |= S_IRUSR;
-			}
-			else if (mode[n] == '2')
-				mask |= S_IWUSR;
-			else if (mode[n] == '1')
-				mask |= S_IXUSR;
-		}
-		else if (cls == 2) {
-			if (mode[n] == '7') {
-				mask |= S_IRWXG;
-			}
-			else if (mode[n] == '6') {
-				mask |= S_IRGRP;
-				mask |= S_IWGRP;
-			}
-			else if (mode[n] == '5') {
-				mask |= S_IRGRP;
-				mask |= S_IXGRP;
-			}
-			else if (mode[n] == '4')
-				mask |= S_IRGRP;
-			else if (mode[n] == '3') {
-				mask |= S_IWGRP;
-				mask |= S_IXGRP;
-			}
-			else if (mode[n] == '2')
-				mask |= S_IWGRP;
-			else if (mode[n] == '1')
-				mask |= S_IXGRP;
-		}
-		else if (cls == 3) {
-			if (mode[n] == '7') {
-				mask |= S_IRWXO;
-			}
-			else if (mode[n] == '6') {
-				mask |= S_IROTH;
-				mask |= S_IWOTH;
-			}
-			else if (mode[n] == '5') {
-				mask |= S_IROTH;
-				mask |= S_IXOTH;
-			}
-			else if (mode[n] == '4')
-				mask |= S_IROTH;
-			else if (mode[n] == '3') {
-				mask |= S_IWOTH;
-				mask |= S_IXOTH;
-			}
-			else if (mode[n] == '2')
-				mask |= S_IWOTH;
-			else if (mode[n] == '1')
-				mask |= S_IXOTH;
-		}
-	}
-
-	if (chmod(fn.c_str(), mask) != 0) {
-		LOGERR("Unable to chmod '%s' %l\n", fn.c_str(), mask);
-		return -1;
-	}
-
-	return 0;
 }
 
 bool TWFunc::Install_SuperSU(void) {
