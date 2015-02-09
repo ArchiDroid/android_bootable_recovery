@@ -57,7 +57,7 @@ extern "C"
 //#define PRINT_RENDER_TIME 1
 
 #ifdef _EVENT_LOGGING
-#define LOGEVENT(...) LOGERR(__VA_ARGS)
+#define LOGEVENT(...) LOGERR(__VA_ARGS__)
 #else
 #define LOGEVENT(...) do {} while (0)
 #endif
@@ -204,7 +204,9 @@ public:
 #endif
 	}
 
-	void processInput();
+	// process input events. returns true if any event was received.
+	bool processInput(int timeout_ms);
+
 	void handleDrag();
 
 private:
@@ -247,10 +249,10 @@ private:
 InputHandler input_handler;
 
 
-void InputHandler::processInput()
+bool InputHandler::processInput(int timeout_ms)
 {
 	input_event ev;
-	int ret = ev_get(&ev);
+	int ret = ev_get(&ev, timeout_ms);
 
 	if (ret < 0)
 	{
@@ -259,7 +261,7 @@ void InputHandler::processInput()
 		// the screen or on a keyboard key or mouse button
 		if (touch_status || key_status)
 			processHoldAndRepeat();
-		return;
+		return (ret != -2);  // -2 means no more events in the queue
 	}
 
 	switch (ev.type)
@@ -276,6 +278,9 @@ void InputHandler::processInput()
 		process_EV_KEY(ev);
 		break;
 	}
+
+	blankTimer.resetTimerAndUnblank();
+	return true;  // we got an event, so there might be more in the queue
 }
 
 void InputHandler::processHoldAndRepeat()
@@ -295,14 +300,12 @@ void InputHandler::processHoldAndRepeat()
 		gettimeofday(&touchStart, NULL);
 		LOGEVENT("TOUCH_HOLD: %d,%d\n", x, y);
 		PageManager::NotifyTouch(TOUCH_HOLD, x, y);
-		blankTimer.resetTimerAndUnblank();
 	}
 	else if (touch_status == TS_TOUCH_REPEAT && mtime > touch_repeat_ms)
 	{
 		LOGEVENT("TOUCH_REPEAT: %d,%d\n", x, y);
 		gettimeofday(&touchStart, NULL);
 		PageManager::NotifyTouch(TOUCH_REPEAT, x, y);
-		blankTimer.resetTimerAndUnblank();
 	}
 	else if (key_status == KS_KEY_PRESSED && mtime > key_hold_ms)
 	{
@@ -310,15 +313,12 @@ void InputHandler::processHoldAndRepeat()
 		gettimeofday(&touchStart, NULL);
 		key_status = KS_KEY_REPEAT;
 		kb->KeyRepeat();
-		blankTimer.resetTimerAndUnblank();
-
 	}
 	else if (key_status == KS_KEY_REPEAT && mtime > key_repeat_ms)
 	{
 		LOGEVENT("KEY_REPEAT: %d,%d\n", x, y);
 		gettimeofday(&touchStart, NULL);
 		kb->KeyRepeat();
-		blankTimer.resetTimerAndUnblank();
 	}
 }
 
@@ -331,7 +331,6 @@ void InputHandler::doTouchStart()
 		state = AS_IN_ACTION_AREA;
 	touch_status = TS_TOUCH_AND_HOLD;
 	gettimeofday(&touchStart, NULL);
-	blankTimer.resetTimerAndUnblank();
 }
 
 void InputHandler::process_EV_ABS(input_event& ev)
@@ -345,7 +344,6 @@ void InputHandler::process_EV_ABS(input_event& ev)
 		{
 			LOGEVENT("TOUCH_RELEASE: %d,%d\n", x, y);
 			PageManager::NotifyTouch(TOUCH_RELEASE, x, y);
-			blankTimer.resetTimerAndUnblank();
 		}
 		touch_status = TS_NONE;
 	}
@@ -360,7 +358,6 @@ void InputHandler::process_EV_ABS(input_event& ev)
 			if (state == AS_IN_ACTION_AREA)
 			{
 				LOGEVENT("TOUCH_DRAG: %d,%d\n", x, y);
-				blankTimer.resetTimerAndUnblank();
 			}
 		}
 	}
@@ -409,18 +406,15 @@ void InputHandler::process_EV_KEY(input_event& ev)
 			key_status = KS_KEY_PRESSED;
 			touch_status = TS_NONE;
 			gettimeofday(&touchStart, NULL);
-			blankTimer.resetTimerAndUnblank();
 		} else {
 			key_status = KS_NONE;
 			touch_status = TS_NONE;
-			blankTimer.resetTimerAndUnblank();
 		}
 	} else {
 		// This is a key release
 		kb->KeyUp(ev.code);
 		key_status = KS_NONE;
 		touch_status = TS_NONE;
-		blankTimer.resetTimerAndUnblank();
 	}
 }
 
@@ -552,7 +546,7 @@ static void ors_command_read()
 // This special function will return immediately the first time, but then
 // always returns 1/30th of a second (or immediately if called later) from
 // the last time it was called
-static void loopTimer(void)
+static void loopTimer(int input_timeout_ms)
 {
 	static timespec lastCall;
 	static int initialized = 0;
@@ -566,15 +560,21 @@ static void loopTimer(void)
 
 	do
 	{
-		input_handler.processInput(); // get inputs but don't send drag notices
+		bool got_event = input_handler.processInput(input_timeout_ms); // get inputs but don't send drag notices
 		timespec curTime;
 		clock_gettime(CLOCK_MONOTONIC, &curTime);
 
 		timespec diff = TWFunc::timespec_diff(lastCall, curTime);
 
-		// This is really 30 times per second
-		if (diff.tv_sec || diff.tv_nsec > 33333333)
+		// This is really 2 or 30 times per second
+		// As long as we get events, increase the timeout so we can catch up with input
+		long timeout = got_event ? 500000000 : 33333333;
+
+		if (diff.tv_sec || diff.tv_nsec > timeout)
 		{
+			// int32_t input_time = TWFunc::timespec_diff_ms(lastCall, curTime);
+			// LOGINFO("loopTimer(): %u ms, count: %u\n", input_time, count);
+
 			lastCall = curTime;
 			input_handler.handleDrag(); // send only drag notices if needed
 			return;
@@ -583,11 +583,15 @@ static void loopTimer(void)
 		// We need to sleep some period time microseconds
 		//unsigned int sleepTime = 33333 -(diff.tv_nsec / 1000);
 		//usleep(sleepTime); // removed so we can scan for input
+		input_timeout_ms = 0;
 	} while (1);
 }
 
 static int runPages(const char *page_name, const int stop_on_page_done)
 {
+	DataManager::SetValue("tw_page_done", 0);
+	DataManager::SetValue("tw_gui_done", 0);
+
 	if (page_name)
 		gui_changePage(page_name);
 
@@ -612,9 +616,12 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 	int has_data = 0;
 #endif
 
+	int input_timeout_ms = 0;
+	int idle_frames = 0;
+
 	for (;;)
 	{
-		loopTimer();
+		loopTimer(input_timeout_ms);
 #ifndef TW_OEM_BUILD
 		if (ors_read_fd > 0) {
 			FD_ZERO(&fdset);
@@ -634,9 +641,13 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 
 		if (!gForceRender.get_value())
 		{
-			int ret;
-
-			ret = PageManager::Update();
+			int ret = PageManager::Update();
+			if (ret == 0)
+				++idle_frames;
+			else
+				idle_frames = 0;
+			// due to possible animation objects, we need to delay activating the input timeout
+			input_timeout_ms = idle_frames > 15 ? 1000 : 0;
 
 #ifndef PRINT_RENDER_TIME
 			if (ret > 1)
@@ -660,7 +671,7 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 
 				LOGINFO("Render(): %u ms, flip(): %u ms, total: %u ms\n", render_t, flip_t, render_t+flip_t);
 			}
-			else if(ret == 1)
+			else if (ret > 0)
 				flip();
 #endif
 		}
@@ -669,6 +680,7 @@ static int runPages(const char *page_name, const int stop_on_page_done)
 			gForceRender.set_value(0);
 			PageManager::Render();
 			flip();
+			input_timeout_ms = 0;
 		}
 
 		blankTimer.checkForTimeout();
@@ -896,7 +908,6 @@ extern "C" int gui_startPage(const char *page_name, const int allow_commands, in
 		}
 	}
 #endif
-	DataManager::SetValue("tw_page_done", 0);
 	return runPages(page_name, stop_on_page_done);
 }
 
@@ -906,7 +917,7 @@ static void * console_thread(void *cookie)
 
 	while (!gGuiConsoleTerminate.get_value())
 	{
-		loopTimer();
+		loopTimer(0);
 
 		if (!gForceRender.get_value())
 		{
