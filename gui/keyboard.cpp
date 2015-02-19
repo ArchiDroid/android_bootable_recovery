@@ -37,6 +37,7 @@
 extern "C" {
 #include "../twcommon.h"
 #include "../minuitwrp/minui.h"
+#include "gui.h"
 }
 
 #include "rapidxml.hpp"
@@ -101,7 +102,7 @@ GUIKeyboard::GUIKeyboard(xml_node<>* node)
 		strcpy(resource, "resource1");
 		attr = child->first_attribute(resource);
 		while (attr && layoutindex < (MAX_KEYBOARD_LAYOUTS + 1)) {
-			keyboardImg[layoutindex - 1] = PageManager::FindResource(attr->value());
+			keyboardImg[layoutindex - 1] = LoadAttrImage(child, resource);
 
 			layoutindex++;
 			resource[8] = (char)(layoutindex + 48);
@@ -112,8 +113,8 @@ GUIKeyboard::GUIKeyboard(xml_node<>* node)
 	// Check the first image to get height and width
 	if (keyboardImg[0] && keyboardImg[0]->GetResource())
 	{
-		KeyboardWidth = gr_get_width(keyboardImg[0]->GetResource());
-		KeyboardHeight = gr_get_height(keyboardImg[0]->GetResource());
+		KeyboardWidth = keyboardImg[0]->GetWidth();
+		KeyboardHeight = keyboardImg[0]->GetHeight();
 	}
 
 	// Load all of the layout maps
@@ -131,12 +132,12 @@ GUIKeyboard::GUIKeyboard(xml_node<>* node)
 		if (child) {
 			attr = child->first_attribute("height");
 			if (attr)
-				keyHeight = atoi(attr->value());
+				keyHeight = scale_theme_y(atoi(attr->value()));
 			else
 				keyHeight = 0;
 			attr = child->first_attribute("width");
 			if (attr)
-				keyWidth = atoi(attr->value());
+				keyWidth = scale_theme_x(atoi(attr->value()));
 			else
 				keyWidth = 0;
 			attr = child->first_attribute("capslock");
@@ -234,7 +235,7 @@ int GUIKeyboard::ParseKey(const char* keyinfo, keyboard_key_class& key, int& Xin
 		keychar = keyinfo[0];
 	} else {
 		// This key has extra data: {keywidth}:{what_the_key_does}
-		keyWidth = atoi(keyinfo);
+		keyWidth = scale_theme_x(atoi(keyinfo));
 
 		const char* ptr = keyinfo;
 		while (*ptr > 32 && *ptr != ':')
